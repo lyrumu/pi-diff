@@ -5,7 +5,9 @@
   "type": "module",
   "main": "index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/selftest.ts",
+    "sync:opencode": "bash scripts/sync-opencode.sh"
   },
   "dependencies": {
     "diff": "^8.0.0"

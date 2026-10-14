@@ -3,63 +3,123 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
-/** Read-only git CLI wrapper. Never writes to the repository. */
-export namespace Git {
-  export function isAvailable(cwd: string): Promise<boolean> {
+/**
+ * Read-only git CLI wrapper. Never writes to the repository.
+ *
+ * Phase 1 scope: repository detection, porcelain status (turn/bash markers),
+ * HEAD pinning and blob retrieval (`git show <rev>:<path>`) for old-side
+ * recovery. The branch/committed/working diff scopes (opencode
+ * `plugin/vcs/git.ts` ports) are added in phase 2 — see PLAN.md.
+ *
+ * Global flags mirror opencode's `cfg` list where read semantics matter
+ * (`--no-optional-locks`, `core.quotepath=false`); the rest are irrelevant
+ * for read-only commands.
+ */
+
+const BASE_ARGS = ["--no-optional-locks", "-c", "core.quotepath=false"] as const;
+
+export interface StatusItem {
+  /** Project-relative posix path. */
+  file: string;
+  /** Two-letter porcelain code, e.g. " M", "??", "M ". */
+  code: string;
+}
+
+export const Git = {
+  async isAvailable(cwd: string): Promise<boolean> {
     // `git rev-parse --is-inside-work-tree`
-    return exec("git", ["rev-parse", "--is-inside-work-tree"], { cwd })
+    return exec("git", [...BASE_ARGS, "rev-parse", "--is-inside-work-tree"], { cwd })
       .then((r) => r.stdout.trim() === "true")
       .catch(() => false);
-  }
+  },
+
+  /** Current HEAD commit id, or null (e.g. unborn branch). */
+  async headCommit(cwd: string): Promise<string | null> {
+    try {
+      const r = await exec("git", [...BASE_ARGS, "rev-parse", "HEAD"], { cwd });
+      return r.stdout.trim() || null;
+    } catch {
+      return null;
+    }
+  },
 
   /**
-   * List changed files vs the given baseline kind.
-   * - "worktree": uncommitted + untracked (vs HEAD)
-   * - "unstaged": vs index
-   * - "branch":   merge-base of current branch vs main/master
-   * Returned paths are relative to cwd, posix-normalized.
+   * Raw `git status --porcelain=v1 -z` output, used as an opaque workspace
+   * marker by Tracker.scanWorkspace (two markers are compared via
+   * parseStatus). Arguments align with opencode `VcsGit.statusNames`.
    */
-  export async function changedFiles(
-    cwd: string,
-    kind: "worktree" | "unstaged" | "branch",
-  ): Promise<string[]> {
-    // TODO: implement with `git status --porcelain` / `git diff --name-status`
-    // / `git merge-base`. Keep all parsing here so callers never shell out.
-    void cwd;
-    void kind;
-    return [];
-  }
+  async statusPorcelain(cwd: string): Promise<string> {
+    try {
+      const r = await exec(
+        "git",
+        [
+          ...BASE_ARGS,
+          "status",
+          "--porcelain=v1",
+          "--untracked-files=all",
+          "--no-renames",
+          "-z",
+          "--",
+          ".",
+        ],
+        { cwd, maxBuffer: 64 * 1024 * 1024 },
+      );
+      return r.stdout;
+    } catch {
+      return "";
+    }
+  },
 
   /**
-   * File content at a baseline, used to recover the "old" side of a file that
-   * was already modified before we snapshotted it (bash-detected changes).
-   * Returns null when the file did not exist at that baseline.
+   * Parse porcelain `-z` output into items. With --no-renames every NUL-
+   * separated token is "XY <path>" (port of opencode's nuls().flatMap).
    */
-  export async function baselineContent(
-    cwd: string,
-    path: string,
-    baseline: "index" | "head",
-  ): Promise<string | null> {
-    // TODO: `git show :path` (index) or `git show HEAD:path` (head).
-    void cwd;
-    void path;
-    void baseline;
-    return null;
-  }
+  parseStatus(raw: string): StatusItem[] {
+    return raw
+      .split("\0")
+      .flatMap((item) => {
+        const file = item.slice(3);
+        if (!file) return [];
+        const code = item.slice(0, 2);
+        return [{ file, code }];
+      });
+  },
 
   /**
-   * Unified patch for a git scope. Returns raw `git diff` output; the TUI
-   * layer parses it with the same diff-engine used for session patches.
+   * Parse a workspace signature into file -> "code:hash" entries. Returns an
+   * empty map for markers that are not valid signatures.
    */
-  export async function patch(
-    cwd: string,
-    kind: "worktree" | "unstaged" | "branch",
-    contextLines = 3,
-  ): Promise<string> {
-    // TODO: `git diff` with the right refspec and `-U<contextLines>`.
-    void cwd;
-    void kind;
-    void contextLines;
-    return "";
-  }
-}
+  parseWorkspaceSignature(marker: string): Map<string, string> {
+    let entries: [string, string, string][];
+    try {
+      const parsed: unknown = JSON.parse(marker);
+      if (!Array.isArray(parsed)) return new Map();
+      entries = parsed as [string, string, string][];
+    } catch {
+      return new Map();
+    }
+    const map = new Map<string, string>();
+    for (const [file, code, hash] of entries) {
+      if (typeof file !== "string" || typeof code !== "string" || typeof hash !== "string") continue;
+      map.set(file, `${code}:${hash}`);
+    }
+    return map;
+  },
+
+  /**
+   * File content (raw bytes) at a revision, e.g. "HEAD" or a pinned commit.
+   * Returns null when the path did not exist at that revision or git failed.
+   */
+  async showRevision(cwd: string, rev: string, path: string): Promise<Buffer | null> {
+    try {
+      const r = await exec("git", [...BASE_ARGS, "show", `${rev}:${path}`], {
+        cwd,
+        encoding: "buffer",
+        maxBuffer: 64 * 1024 * 1024,
+      }) as unknown as { stdout: Buffer };
+      return r.stdout;
+    } catch {
+      return null;
+    }
+  },
+} as const;

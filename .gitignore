@@ -1,23 +1,2 @@
-# Dependencies
+reference/
 node_modules/
-
-# Build output
-dist/
-*.tsbuildinfo
-*.tgz
-
-# Environment
-.env
-.env.*
-
-# Logs
-*.log
-npm-debug.log*
-
-# Test / coverage
-coverage/
-
-# Editor & OS
-.DS_Store
-.idea/
-.vscode/
