@@ -1,0 +1,19 @@
+{
+  "name": "pi-diff",
+  "version": "0.1.0",
+  "description": "pi extension: /diff — view per-turn, per-session and git changes in a fullscreen TUI",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "diff": "^8.0.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.2.0",
+    "@types/diff": "^8.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
