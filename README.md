@@ -1,61 +1,66 @@
 # pi-diff
 
-在 [pi](https://github.com/earendil-works/pi) 中用 `/diff` 全屏查看每轮、会话累计和 Git 改动。左侧选文件，右侧看差异，支持鼠标、自动换行和合并／拆分视图。
+[![English](https://img.shields.io/badge/README-English-blue)](README.md) [![简体中文](https://img.shields.io/badge/README-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-lightgrey)](README.zh-CN.md)
 
-## 安装
+Review per-turn, session-wide, and Git changes in a fullscreen TUI inside [pi](https://github.com/earendil-works/pi). Browse changed files on the left and inspect diffs on the right, with mouse support, automatic line wrapping, and unified or split views.
 
-需要已安装 pi，以及 Node.js ≥ 22.19.0、npm。当前验证版本为 pi **1.2.0**；Git 范围还需要系统 Git。
+## Installation
 
-```bash
-# 获取源码并进入目录；已有本地源码时跳过这两行
-git clone https://github.com/lyrumu/pi-diff.git
-cd pi-diff
-
-# 安装项目依赖
-npm install
-
-# 将本地扩展入口注册到 pi
-pi install "$PWD/index.ts"
-```
-
-安装后重启 pi，或在运行中的 pi 输入 `/reload`。扩展直接读取此目录，请保留它；已通过软链接等方式加载的用户无需重复安装。
-
-也可以仅在一次启动中试用，在本仓库目录运行：
+Requires pi **1.2.0** (tested version), Node.js ≥ 22.19.0, npm, and Git.
 
 ```bash
-# 仅本次启动加载，不写入 pi 安装设置
-pi --extension ./index.ts
+# Install the extension
+pi install git:github.com/lyrumu/pi-diff
 ```
 
-## 使用
+Restart pi after installation, or enter `/reload` in a running session.
 
-在要工作的项目目录启动 pi，让它完成一次修改，然后输入 `/diff`。默认直接显示 **Last turn**，没有选择器。
+To update or uninstall:
 
-按 `Tab`／`Shift+Tab` 向后／向前循环：
+```bash
+# Update the extension
+pi update git:github.com/lyrumu/pi-diff
 
-| 范围 | 含义 |
+# Uninstall the extension
+pi remove git:github.com/lyrumu/pi-diff
+```
+
+## Usage
+
+Start pi in your project directory, let it make a change, then enter `/diff`. The viewer opens **Last turn** by default.
+
+Press `Tab` / `Shift+Tab` to cycle forward or backward through the available scopes:
+
+| Scope | Changes shown |
 |---|---|
-| Last turn | 最近一轮任务的改动；该轮没有改动时显示为空 |
-| Session total | 当前会话分支中已记录的累计改动 |
-| Unstaged | 暂存区 → 当前文件，即未暂存的改动 |
-| Uncommitted | HEAD → 当前文件，包含已暂存和未暂存的改动 |
-| All branch changes | 与默认基准分支共同祖先相比的全部改动，含已提交及未提交部分 |
+| Last turn | Changes from the most recent task; empty if that task made no changes |
+| Session total | Cumulative changes recorded on the current session branch |
+| Unstaged | Index → working tree: unstaged changes |
+| Uncommitted | HEAD → working tree: staged and unstaged changes |
+| All branch changes | All changes since the merge base with the default base branch, including committed and uncommitted changes |
 
-Git 范围也包含未跟踪文件；无 Git 仓库时只显示前两项。插件仅查询 Git，不执行暂存、提交或回退。
+Git scopes also include untracked files. Outside a Git repository, only the first two scopes are available. The extension only reads Git state; it does not stage, commit, or revert changes.
 
-| 操作 | 按键／鼠标 |
+| Action | Keyboard / mouse |
 |---|---|
-| 选择文件、折叠目录 | 鼠标点击；文件树中用 `↑↓`，`Enter`／空格展开或折叠目录 |
-| 上一个／下一个文件 | `p`／`n` |
-| 操作文件树／差异内容 | `h`／`l`；鼠标操作自动选择区域 |
-| 滚动内容 | 滚轮、`↑↓`、`PageUp`／`PageDown`；内容区用 `Home`／`End` 到首尾 |
-| 切换合并／拆分视图 | `v`／`V`，或点击顶部“切换视图” |
-| 退出 | `Esc`／`q` |
+| Select files and collapse directories | Click; use `↑↓` in the file tree and `Enter` / Space to expand or collapse directories |
+| Previous / next file | `p` / `n` |
+| Focus the file tree / diff | `h` / `l`; mouse interaction focuses the corresponding pane |
+| Scroll | Mouse wheel, `↑↓`, `PageUp` / `PageDown`; `Home` / `End` in the diff pane |
+| Switch unified / split view | `v` / `V`, or click the view toggle at the top |
+| Close | `Esc` / `q` |
 
-文件树中的 `M` 表示修改、`A` 表示新增、`D` 表示删除。新增／删除文件固定为合并视图，不能切换；右侧不足 100 列时也使用合并视图。窗口较窄时用 `h`／`l` 在文件树和内容页之间切换。
+File markers indicate modified (`M`), added (`A`), and deleted (`D`) files. Added and deleted files always use unified view. The diff pane also uses unified view when it is less than 100 columns wide. In narrow terminals, use `h` / `l` to switch between the file tree and diff pages.
 
-长行自动换行，源行号只显示一次，续行标记为 `↳`；拆分两侧保持对齐。增删行带主题红绿背景，布局偏好会保存。
+Long lines wrap automatically. Source line numbers appear only on the first visual row, and continuation rows use `↳`. Split views keep both sides aligned. Added and removed lines use theme colors, and your layout preference is saved.
 
-仅记录插件启用后的轮次，不自动恢复旧的缺失历史；目前不追踪项目目录外文件。无 Git 时，shell 改动可能缺少修改前内容；二进制、超限差异和累计缓存缺失会显示降级提示。
+## Data and limitations
 
-当前进展与验证边界见 [STATUS.md](STATUS.md)。历史计划保留在 [PLAN.md](PLAN.md)，暂缓功能见 [docs/deferred-features.md](docs/deferred-features.md)。功能设计参考 opencode，来源见 [NOTICE.md](NOTICE.md)。
+- Only changes made after the extension is enabled are recorded, within the project directory. Missing history from older sessions is not recovered.
+- Per-turn diffs are saved with the pi session and remain available after reloading, resuming, or switching session branches. Content caches and layout preferences are stored in `~/.pi/agent/data/pi-diff/`.
+- Outside Git repositories, shell changes may lack the original content and show `baseline unknown`. Missing cumulative caches are explicitly marked as incomplete.
+- Binary files and diffs exceeding the 10 MB limit show a notice instead of their contents. Very narrow terminals may clip content.
+
+## License
+
+[MIT](LICENSE). Parts of the implementation are ported from [opencode](https://github.com/anomalyco/opencode). See [NOTICE.md](NOTICE.md) and [third-party licenses](THIRD_PARTY_LICENSES.md) for attribution and license terms.

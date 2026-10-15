@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { promisify } from "node:util";
@@ -105,6 +105,23 @@ test("pi's actual extension loader can load the entry point and register /diff",
     const loaded = loader.getExtensions();
     assert.deepEqual(loaded.errors, []);
     assert.equal(loaded.extensions.length, 1);
+    assert.ok(loaded.extensions[0]!.commands.has("diff"));
+  });
+});
+
+test("pi discovers the package manifest and registers /diff without host dependency warnings", async () => {
+  await workspace(async (cwd) => {
+    const loader = new DefaultResourceLoader({
+      cwd, agentDir: join(cwd, "agent"),
+      settingsManager: SettingsManager.inMemory({ packages: [dirname(indexPath)] }),
+      noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+    });
+    await loader.reload();
+    const loaded = loader.getExtensions();
+    assert.deepEqual(loaded.errors, []);
+    assert.deepEqual(loaded.warnings, []);
+    assert.equal(loaded.extensions.length, 1);
+    assert.equal(loaded.extensions[0]!.path, indexPath);
     assert.ok(loaded.extensions[0]!.commands.has("diff"));
   });
 });
