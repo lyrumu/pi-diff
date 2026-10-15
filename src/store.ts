@@ -31,18 +31,24 @@ function isTurnDiffData(value: unknown): value is TurnDiffEntryData {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
-    typeof v.turn === "number" &&
-    typeof v.endedAt === "string" &&
-    typeof v.fileCount === "number" &&
+    typeof v.turn === "number" && Number.isSafeInteger(v.turn) && v.turn > 0 &&
+    typeof v.endedAt === "string" && Number.isFinite(Date.parse(v.endedAt)) &&
+    typeof v.fileCount === "number" && Number.isSafeInteger(v.fileCount) && v.fileCount >= 0 &&
     Array.isArray(v.patches) &&
-    v.patches.every(
-      (p) =>
-        typeof p === "object" &&
-        p !== null &&
-        typeof (p as Record<string, unknown>).file === "string" &&
-        typeof (p as Record<string, unknown>).patch === "string",
-    )
+    v.fileCount === v.patches.length && v.patches.every(isFilePatch)
   );
+}
+
+function isFilePatch(value: unknown): value is FilePatch {
+  if (typeof value !== "object" || value === null) return false;
+  const p = value as Record<string, unknown>;
+  return typeof p.file === "string" && p.file.length > 0 && !p.file.includes("\0") &&
+    typeof p.patch === "string" &&
+    (p.status === "added" || p.status === "modified" || p.status === "deleted") &&
+    typeof p.additions === "number" && Number.isSafeInteger(p.additions) && p.additions >= 0 &&
+    typeof p.deletions === "number" && Number.isSafeInteger(p.deletions) && p.deletions >= 0 &&
+    [p.oldHash, p.newHash].every((hash) => hash === undefined || hash === null || (typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash))) &&
+    [p.binary, p.tooLarge, p.baselineUnknown, p.unavailable, p.cumulativeFallback].every((flag) => flag === undefined || typeof flag === "boolean");
 }
 
 /**
@@ -58,4 +64,14 @@ export function collectTurnDiffs(entries: readonly SessionEntry[]): TurnDiffEntr
     result.push(entry.data);
   }
   return result;
+}
+
+/** Recognize unusable old records without treating them as successful empty turns. */
+export function hasUnavailableTurnDiffs(entries: readonly SessionEntry[]): boolean {
+  return entries.some((entry) => {
+    if (entry.type !== "custom") return false;
+    const type: unknown = entry.customType;
+    if (typeof type === "object" && type !== null && "customType" in type && type.customType === CUSTOM_TYPE) return true;
+    return type === CUSTOM_TYPE && !isTurnDiffData(entry.data);
+  });
 }

@@ -143,6 +143,10 @@ export interface FilePatch {
   binary?: boolean;
   /** Patch exceeded the byte cap and was emptied. */
   tooLarge?: boolean;
+  /** A file side could not be read or captured; never treat it as absent. */
+  unavailable?: boolean;
+  /** Only the latest turn patch is available for a cumulative view. */
+  cumulativeFallback?: boolean;
   /** sha256 of old-side bytes; null = file did not exist on the old side. */
   oldHash?: string | null;
   /** sha256 of new-side bytes; null = file does not exist on the new side. */

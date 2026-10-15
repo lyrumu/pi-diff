@@ -1,6 +1,12 @@
 import type { ExtensionAPI, ToolCallEvent } from "@earendil-works/pi-coding-agent";
 
 import { Tracker } from "./src/tracker.ts";
+import { Git } from "./src/git.ts";
+import type { FilePatch } from "./src/diff-engine.ts";
+import { GIT_SCOPES, cycleScope, type DiffScope } from "./src/tui/scopes.ts";
+import { DiffScreen, FULLSCREEN_OPTIONS } from "./src/tui/diff-screen.ts";
+import { loadViewPreference, saveViewPreference, VIEW_PREFERENCE_PATH } from "./src/preferences.ts";
+import { hasUnavailableTurnDiffs } from "./src/store.ts";
 
 const SHELL_TOOLS = new Set(["bash", "powershell"]);
 const FILE_TOOLS = new Set(["edit", "write"]);
@@ -22,57 +28,119 @@ const FILE_TOOLS = new Set(["edit", "write"]);
 export default function (pi: ExtensionAPI) {
   const tracker = new Tracker(pi);
 
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     // Rebuild in-memory turn-diff state from persisted custom entries on the
     // active branch (session reload / resume / branch switch), then purge
     // stale snapshot caches (30-day LRU, see AGENTS.md).
     tracker.restoreFromSession(ctx.sessionManager);
-    void tracker.cleanupCaches();
+    await tracker.cleanupCaches();
   });
 
-  pi.on("before_agent_start", () => {
+  pi.on("session_tree", (_event, ctx) => {
+    tracker.restoreFromSession(ctx.sessionManager);
+  });
+
+  pi.on("before_agent_start", async () => {
     // Turn start: bump the turn counter and take the workspace baseline.
-    void tracker.onTurnStart();
+    await tracker.onTurnStart();
   });
 
-  pi.on("tool_call", (event) => {
+  pi.on("tool_call", async (event) => {
     const e = event as ToolCallEvent;
     if (SHELL_TOOLS.has(e.toolName)) {
       // Shell boundary (before): record the workspace marker.
-      void tracker.onBashStart(e.toolCallId);
+      await tracker.onBashStart(e.toolCallId);
     } else if (FILE_TOOLS.has(e.toolName)) {
       // edit/write (before execution, so disk still holds the old side):
       // register the target file through the single entry point.
       const path = (e.input as { path?: string }).path;
-      if (typeof path === "string") void tracker.recordFileChange(path, { fromToolEvent: true });
+      if (typeof path === "string") await tracker.recordFileChange(path, { fromToolEvent: true });
     }
   });
 
-  pi.on("tool_result", (event) => {
+  pi.on("tool_result", async (event) => {
     const e = event as { toolName: string; toolCallId: string };
     if (SHELL_TOOLS.has(e.toolName)) {
       // Shell boundary (after): scan for files the command changed.
-      void tracker.onBashEnd(e.toolCallId);
+      await tracker.onBashEnd(e.toolCallId);
     }
   });
 
-  pi.on("agent_settled", () => {
+  pi.on("agent_settled", async () => {
     // End of the user-prompt run: compute patches for every registered file
     // and persist them as a self-contained `pi-diff.turn` custom entry.
-    void tracker.finalizeTurn();
+    await tracker.finalizeTurn();
   });
 
   pi.registerCommand("diff", {
-    description: "View per-turn / session / git changes",
+    description: "查看每轮、会话累计和 Git 改动",
     handler: async (_args, ctx) => {
       if (ctx.mode !== "tui" || !ctx.hasUI) {
-        ctx.ui?.notify("pi-diff requires the interactive TUI", "error");
+        ctx.ui?.notify("pi-diff 需要在交互式 TUI 中使用", "error");
         return;
       }
-      // Open the fullscreen TUI: scope selector first (last turn / turn list /
-      // session total / git scopes), then the file-tree + diff screen.
-      // Implementation: src/tui/ — see AGENTS.md (phase 3).
-      ctx.ui?.notify("pi-diff: TUI not implemented yet (phase 3)", "info");
+      try {
+        // pi resolves idle only after awaited agent_settled handlers complete.
+        await ctx.waitForIdle();
+        tracker.restoreFromSession(ctx.sessionManager);
+        const turns = tracker.turns();
+        const gitAvailable = await Git.isAvailable(ctx.cwd);
+        const unavailableHistory = hasUnavailableTurnDiffs(ctx.sessionManager.getBranch());
+        let scope: DiffScope = { kind: "turn", turn: turns.at(-1)?.turn };
+        const initialView = await loadViewPreference(VIEW_PREFERENCE_PATH);
+        let view = initialView;
+        let request = 0;
+        let closed = false;
+        const scopeTitle = (source: DiffScope): string => source.kind === "turn"
+          ? source.turn === undefined ? "Last turn" : `Last turn · Turn ${source.turn}`
+          : source.kind === "session" ? "Session total" : GIT_SCOPES.find((item) => item.mode === source.mode)!.label;
+        const loadScope = async (source: DiffScope) => {
+          let files: readonly FilePatch[];
+          let emptyMessage: string | undefined;
+          if (source.kind === "turn") {
+            const turnNumber = source.turn;
+            files = turns.find((turn) => turn.turn === turnNumber)?.patches ?? [];
+            emptyMessage = turnNumber === undefined ? (unavailableHistory ? "旧会话没有有效的改动记录，无法展示当时变化" : "没有轮次记录；仅记录插件启用后的任务") : "本轮没有文件改动";
+          } else if (source.kind === "session") {
+            files = await tracker.sessionPatches();
+            emptyMessage = unavailableHistory ? "没有可用的历史改动，无法展示完整累计" : "当前会话没有累计改动";
+          } else files = await Git.diff(ctx.cwd, source.mode);
+          return { title: scopeTitle(source), files, emptyMessage, notice: source.kind !== "git" && unavailableHistory ? "历史记录不完整" : undefined };
+        };
+        const initial = await loadScope(scope);
+        try {
+          await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
+            const screen = new DiffScreen(tui, theme, initial.title, initial.files, () => {
+              closed = true;
+              request++;
+              done();
+            }, {
+              view, emptyMessage: initial.emptyMessage, notice: initial.notice,
+              onViewChange: (next) => { view = next; },
+              onScopeChange: (direction) => { void changeScope(direction); },
+            });
+            const changeScope = async (direction: 1 | -1) => {
+              scope = cycleScope(scope, direction, turns, gitAvailable);
+              const target = scope;
+              const id = ++request;
+              screen.setData(scopeTitle(target), [], { emptyMessage: "正在加载改动…" });
+              try {
+                const data = await loadScope(target);
+                if (!closed && id === request) screen.setData(data.title, data.files, data);
+              } catch (error) {
+                if (!closed && id === request) screen.setData(scopeTitle(target), [], { emptyMessage: `加载失败：${error instanceof Error ? error.message : String(error)}` });
+              }
+            };
+            return screen;
+          }, FULLSCREEN_OPTIONS);
+        } finally {
+          closed = true;
+          request++;
+          if (view && view !== initialView) await saveViewPreference(VIEW_PREFERENCE_PATH, view);
+        }
+      } catch (error) {
+        ctx.ui.notify(`pi-diff: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
     },
   });
 }

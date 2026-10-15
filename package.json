@@ -6,7 +6,7 @@
   "main": "index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node tests/selftest.ts",
+    "test": "node tests/selftest.ts && node tests/git-selftest.ts && node tests/tui-selftest.ts && node tests/extension-selftest.ts && node tests/reliability-selftest.ts",
     "sync:opencode": "bash scripts/sync-opencode.sh"
   },
   "dependencies": {

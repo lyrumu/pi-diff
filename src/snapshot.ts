@@ -1,7 +1,9 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, rm, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, rename, rm, rmdir, stat, unlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
+
+export const DATA_DIR = join(homedir(), ".pi", "agent", "data", "pi-diff");
 
 /**
  * Content-addressed snapshot cache under ~/.pi/agent/data/pi-diff/.
@@ -18,7 +20,11 @@ import { homedir } from "node:os";
  * are mounted noatime (common on macOS); we fall back to mtime there.
  */
 export class SnapshotStore {
-  private readonly root = join(homedir(), ".pi", "agent", "data", "pi-diff");
+  private readonly root: string;
+
+  constructor(root = DATA_DIR) {
+    this.root = root;
+  }
 
   static hash(content: Buffer): string {
     return createHash("sha256").update(content).digest("hex");
@@ -35,15 +41,23 @@ export class SnapshotStore {
       // not stored yet
     }
     await mkdir(this.shard(hash), { recursive: true });
-    await writeFile(file, content);
+    const temporary = `${file}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, content);
+      await rename(temporary, file);
+    } finally {
+      await rm(temporary, { force: true }).catch(() => {});
+    }
     return hash;
   }
 
   /** Fetch content by hash; null when unknown or unreadable. Refreshes atime. */
   async get(hash: string): Promise<Buffer | null> {
+    if (!/^[a-f0-9]{64}$/.test(hash)) return null;
     const file = this.objectPath(hash);
     try {
       const content = await readFile(file);
+      if (SnapshotStore.hash(content) !== hash) return null;
       // Best-effort atime refresh for the LRU (harmless if it fails).
       await utimes(file, new Date(), new Date()).catch(() => {});
       return content;
@@ -85,7 +99,8 @@ export class SnapshotStore {
           continue;
         }
       }
-      if (remaining === 0) await rm(shardDir, { recursive: true, force: true }).catch(() => {});
+      // A concurrent capture may have added a fresh object since readdir.
+      if (remaining === 0) await rmdir(shardDir).catch(() => {});
     }
   }
 
