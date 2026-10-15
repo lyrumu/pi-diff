@@ -90,9 +90,10 @@ export class FileTree {
       const indent = "│ ".repeat(Math.max(0, Math.min(row.depth, Math.floor((width - 8) / 2))));
       const marker = row.kind === "directory" ? (this.expanded.has(row.id) ? "▾ " : "▸ ") : "≡ ";
       const label = `${indent}${marker}${displayText(row.name)}${row.kind === "directory" ? "/" : ""}`;
-      const name = selected ? theme.bold(label) : label;
+      const name = selected ? theme.bold(theme.fg("accent", label)) : label;
       const badge = theme.fg(color, status === "added" ? "A" : status === "deleted" ? "D" : status === "modified" ? "M" : " ");
-      return fit(prefix + fit(name, width - 4) + " " + badge, width);
+      const line = fit(prefix + fit(name, width - 4) + " " + badge, width);
+      return selected ? theme.bg("selectedBg", line) : line;
     });
   }
 }

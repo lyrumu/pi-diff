@@ -4,6 +4,37 @@
 
 在 [pi](https://github.com/earendil-works/pi) 中用 `/diff` 全屏查看每轮、会话累计和 Git 改动。左侧选文件，右侧看差异，支持鼠标、自动换行和合并／拆分视图。
 
+## 功能特性
+
+### 合并与拆分视图
+
+在同一列中阅读增删内容，或左右对照修改前后的版本。按 `v`／`V` 或点击顶部按钮切换，布局偏好会保存。长行自动换行，保留源行号，拆分视图两侧保持对齐，增删配色跟随 pi 主题。新增／删除文件固定使用合并视图；窗口较窄时也会自动使用合并视图。
+
+<table>
+  <tr>
+    <th align="center">合并视图</th>
+    <th align="center">拆分视图</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/images/unified-view.png"><img src="docs/images/unified-view-preview.png" width="360" alt="合并视图：左侧改动文件树，顶部总增删行数，右侧高亮显示新增和删除内容"></a></td>
+    <td align="center"><a href="docs/images/split-view.png"><img src="docs/images/split-view-preview.png" width="360" alt="拆分视图：左右对照修改前后的内容，自动换行并保持两侧对齐"></a></td>
+  </tr>
+</table>
+
+点击预览图可查看完整尺寸截图。
+
+### 参照 opencode
+
+参照 [opencode](https://github.com/anomalyco/opencode) 的 diff 查看体验与核心行为，将终端差异审阅带到 pi，通过 `/diff` 直接查看项目改动。
+
+### 在 pi 中完成改动审阅
+
+- **五种查看范围**：最近一轮、会话累计、未暂存、未提交和分支全部改动，按 `Tab`／`Shift+Tab` 循环切换。
+- **改动规模一眼可见**：顶部显示当前范围的文件数与总增删行数，选中文件也有独立的增删统计。
+- **快速定位改动文件**：可折叠文件树、醒目的选中高亮，以及 `A`／`M`／`D` 状态标记；支持键盘导航、鼠标点击与滚轮浏览。
+- **重新打开也能继续查看**：已记录的每轮差异随会话保存，重载 pi、恢复会话或切换会话分支后仍可查看。
+- **只读审阅**：查看差异不会暂存、提交或回退文件；无 Git 仓库也能查看最近一轮和会话累计改动。
+
 ## 安装
 
 需要 pi **1.2.0**（已验证版本）、Node.js ≥ 22.19.0、npm 和系统 Git。

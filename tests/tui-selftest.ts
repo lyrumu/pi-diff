@@ -15,7 +15,7 @@ function theme(light = false): Theme {
   return new Theme({
     accent: light ? "#0000ff" : "#00ffff", success: "#00ff00", error: "#ff0000",
     muted: light ? "#444444" : "#aaaaaa", borderMuted: "#555555", text: "", thinkingXhigh: "#aaaaaa",
-  } as never, { selectedBg: "", toolSuccessBg: light ? "#dcfce7" : "#143322", toolErrorBg: light ? "#fee2e2" : "#3d1a1a" } as never, "truecolor");
+  } as never, { selectedBg: light ? "#dbeafe" : "#264f78", toolSuccessBg: light ? "#dcfce7" : "#143322", toolErrorBg: light ? "#fee2e2" : "#3d1a1a" } as never, "truecolor");
 }
 
 class MemoryTerminal implements Terminal {
@@ -101,6 +101,58 @@ test("five scopes cycle in order, reverse and hide Git outside a repository", ()
   assert.deepEqual(cycleScope(scope, -1, turns, true), expected[4]);
   assert.deepEqual(cycleScope(scope, 1, turns, false), {kind: "session"});
   assert.deepEqual(cycleScope({kind: "session"}, 1, [], false), {kind: "turn", turn: undefined});
+});
+
+test("scope totals include every file and update when the scope changes", () => {
+  const files = [patch("a.txt", null, "one\ntwo\n"), patch("b.txt", "old\n", "new\n"), patch("c.txt", "gone\n", null)];
+  const screen = new DiffScreen(host(), theme(), "Last turn", files, () => {});
+  const header = () => screen.render(160)[0]!;
+  assert.match(stripTerminalSequences(header()), /Last turn · 3 个文件\s+\+3 -2/);
+  assert.ok(header().includes(theme().fg("success", "+3")));
+  assert.ok(header().includes(theme().fg("error", "-2")));
+  screen.handleInput("n");
+  assert.match(stripTerminalSequences(header()), /\+3 -2/);
+  for (const title of ["Session total", "Unstaged", "Uncommitted", "All branch changes"]) {
+    screen.setData(title, [files[0]!]);
+    assert.ok(stripTerminalSequences(header()).startsWith(`${title} · 1 个文件  +2 -0`));
+  }
+  screen.setData("Last turn", []);
+  assert.match(stripTerminalSequences(header()), /0 个文件\s+\+0 -0/);
+});
+
+test("selected tree rows keep a full-width theme background across focus, navigation and mouse selection", () => {
+  for (const light of [false, true]) for (const width of [40, 90, 160]) {
+    const ui = host();
+    ui.terminal.columns = width;
+    const current = theme(light);
+    const screen = new DiffScreen(ui, current, "Last turn", [patch("a.txt", null, "a\n"), patch("b.txt", "b\n", null)], () => {});
+    const treeWidth = width < 90 ? width : Math.max(30, Math.min(40, Math.floor(width / 4))) - 1;
+    const selectedRows = () => {
+      frame(screen, width, 24);
+      return screen.render(width).map((line) => sliceByColumn(line, 0, treeWidth))
+        .filter((line) => line.includes(current.getBgAnsi("selectedBg")));
+    };
+    if (width < 90) screen.handleInput("h");
+    const assertSelected = (name: string, status: string) => {
+      const rows = selectedRows();
+      assert.equal(rows.length, 1);
+      assert.equal(visibleWidth(rows[0]!), treeWidth);
+      assert.match(stripTerminalSequences(rows[0]!), new RegExp(`› .*${name}.* ${status}$`));
+      const colored = rows[0]!.slice(rows[0]!.indexOf(current.getBgAnsi("selectedBg")) + current.getBgAnsi("selectedBg").length).split("\x1b[49m")[0]!;
+      assert.equal(visibleWidth(colored), treeWidth, "selection background includes the status column");
+    };
+    assertSelected("a.txt", "A");
+    screen.handleInput("h");
+    assertSelected("a.txt", "A");
+    screen.handleInput("\x1b[B");
+    assertSelected("b.txt", "D");
+    if (width >= 90) {
+      screen.handleInput("l");
+      assertSelected("b.txt", "D");
+      screen.handleMouse(mouse(3, 3, {width}));
+      assertSelected("a.txt", "A");
+    }
+  }
 });
 
 test("unified/split line numbers pair unequal replacements, multiple hunks and no-newline markers", () => {

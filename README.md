@@ -4,6 +4,37 @@
 
 Review per-turn, session-wide, and Git changes in a fullscreen TUI inside [pi](https://github.com/earendil-works/pi). Browse changed files on the left and inspect diffs on the right, with mouse support, automatic line wrapping, and unified or split views.
 
+## Features
+
+### Unified and split views
+
+Read additions and deletions together, or compare the old and new versions side by side. Press `v` / `V` or click the view toggle to switch layouts; your preference is saved. Long lines wrap automatically, with source line numbers preserved and both sides aligned in split view. Diff colors follow your pi theme. Added and deleted files always use unified view; narrow terminals also fall back to unified view.
+
+<table>
+  <tr>
+    <th align="center">Unified view</th>
+    <th align="center">Split view</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/images/unified-view.png"><img src="docs/images/unified-view-preview.png" width="360" alt="Unified view with a changed-file tree, total line counts, and highlighted additions and deletions"></a></td>
+    <td align="center"><a href="docs/images/split-view.png"><img src="docs/images/split-view-preview.png" width="360" alt="Split view comparing old and new content side by side, with wrapped lines aligned"></a></td>
+  </tr>
+</table>
+
+Click a preview to view the full-size screenshot.
+
+### Inspired by opencode
+
+The diff viewer takes its design and core behavior from [opencode](https://github.com/anomalyco/opencode), bringing its terminal review experience into pi through `/diff`.
+
+### Review changes without leaving pi
+
+- **Five review scopes:** inspect the last turn, session total, unstaged changes, uncommitted changes, or all branch changes. Switch with `Tab` / `Shift+Tab`.
+- **Change totals at a glance:** see the current scope's file count and total added/removed lines at the top, plus counts for the selected file.
+- **Find your way through changed files:** browse a collapsible file tree with a highlighted selection and `A` / `M` / `D` markers. Use the keyboard or click and scroll with the mouse.
+- **Pick up where you left off:** recorded per-turn diffs remain available after reloading pi, resuming a session, or switching session branches.
+- **Read-only review:** inspect changes without staging, committing, or reverting them. Last-turn and session views also work outside Git repositories.
+
 ## Installation
 
 Requires pi **1.2.0** (tested version), Node.js ≥ 22.19.0, npm, and Git.

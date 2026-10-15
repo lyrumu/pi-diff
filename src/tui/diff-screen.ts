@@ -172,9 +172,11 @@ export class DiffScreen implements Component {
     const theme = this.theme;
     const file = this.selected === undefined ? undefined : this.files[this.selected];
     const fixedUnified = file !== undefined && file.status !== "modified";
-    const heading = `${displayText(this.title)}${this.notice ? ` · ${this.notice}` : ""} · ${this.files.length} 个文件  `;
+    const totals = this.files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 });
+    const heading = theme.bold(theme.fg("accent", `${displayText(this.title)}${this.notice ? ` · ${this.notice}` : ""} · ${this.files.length} 个文件  `)
+      + theme.fg("success", `+${totals.additions}`) + " " + theme.fg("error", `-${totals.deletions}`) + "  ");
     this.viewButton = fixedUnified ? -1 : visibleWidth(heading);
-    const header = theme.bold(theme.fg("accent", heading + (fixedUnified ? "[仅合并视图]" : "[切换视图]")));
+    const header = heading + theme.bold(theme.fg("accent", fixedUnified ? "[仅合并视图]" : "[切换视图]"));
     const lines = [fit(header, width)];
     const bodyHeight = Math.max(0, rows - 2);
     if (!treeWidth && this.focus === "tree" && this.files.length) {
