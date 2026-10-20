@@ -3,9 +3,10 @@ import type { ExtensionAPI, ToolCallEvent } from "@earendil-works/pi-coding-agen
 import { Tracker } from "./src/tracker.ts";
 import { Git } from "./src/git.ts";
 import type { FilePatch } from "./src/diff-engine.ts";
-import { GIT_SCOPES, cycleScope, type DiffScope } from "./src/tui/scopes.ts";
+import { cycleScope, type DiffScope } from "./src/tui/scopes.ts";
 import { DiffScreen, FULLSCREEN_OPTIONS } from "./src/tui/diff-screen.ts";
-import { loadViewPreference, saveViewPreference, VIEW_PREFERENCE_PATH } from "./src/preferences.ts";
+import { loadViewPreference, saveViewPreference, VIEW_PREFERENCE_PATH, loadLanguagePreference, saveLanguagePreference, LANGUAGE_PREFERENCE_PATH } from "./src/preferences.ts";
+import { messages, type Language, type LocalizedText } from "./src/language.ts";
 import { hasUnavailableTurnDiffs } from "./src/store.ts";
 
 const SHELL_TOOLS = new Set(["bash", "powershell"]);
@@ -16,7 +17,7 @@ const FILE_TOOLS = new Set(["edit", "write"]);
  *
  * Shows per-turn, per-session and (when git is available) git-scope changes
  * in a fullscreen TUI: file tree on the left, diff content on the right,
- * unified/split layouts toggled with Tab.
+ * unified/split layouts toggled with v/V; l/L switches the display language.
  *
  * Architecture is ported from opencode's diff stack; see AGENTS.md for the
  * mapping between opencode source files and the modules in src/.
@@ -73,10 +74,12 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("diff", {
-    description: "查看每轮、会话累计和 Git 改动",
+    description: "Review per-turn, session-wide and Git changes",
     handler: async (_args, ctx) => {
+      const initialLanguage = await loadLanguagePreference(LANGUAGE_PREFERENCE_PATH);
+      let language = initialLanguage;
       if (ctx.mode !== "tui" || !ctx.hasUI) {
-        ctx.ui?.notify("pi-diff 需要在交互式 TUI 中使用", "error");
+        ctx.ui?.notify(messages[language].requiresTui, "error");
         return;
       }
       try {
@@ -86,26 +89,26 @@ export default function (pi: ExtensionAPI) {
         const turns = tracker.turns();
         const gitAvailable = await Git.isAvailable(ctx.cwd);
         const unavailableHistory = hasUnavailableTurnDiffs(ctx.sessionManager.getBranch());
-        let scope: DiffScope = { kind: "turn", turn: turns.at(-1)?.turn };
+        let scope: DiffScope = gitAvailable ? { kind: "git", mode: "unstaged" } : { kind: "turn", turn: turns.at(-1)?.turn };
         const initialView = await loadViewPreference(VIEW_PREFERENCE_PATH);
         let view = initialView;
         let request = 0;
         let closed = false;
-        const scopeTitle = (source: DiffScope): string => source.kind === "turn"
-          ? source.turn === undefined ? "Last turn" : `Last turn · Turn ${source.turn}`
-          : source.kind === "session" ? "Session total" : GIT_SCOPES.find((item) => item.mode === source.mode)!.label;
+        const scopeTitle = (source: DiffScope): LocalizedText => (language) => source.kind === "turn"
+          ? source.turn === undefined ? messages[language].lastTurn : messages[language].turn(source.turn)
+          : source.kind === "session" ? messages[language].session : messages[language][source.mode];
         const loadScope = async (source: DiffScope) => {
           let files: readonly FilePatch[];
-          let emptyMessage: string | undefined;
+          let emptyMessage: LocalizedText | undefined;
           if (source.kind === "turn") {
             const turnNumber = source.turn;
             files = turns.find((turn) => turn.turn === turnNumber)?.patches ?? [];
-            emptyMessage = turnNumber === undefined ? (unavailableHistory ? "旧会话没有有效的改动记录，无法展示当时变化" : "没有轮次记录；仅记录插件启用后的任务") : "本轮没有文件改动";
+            emptyMessage = (language) => messages[language][turnNumber === undefined ? (unavailableHistory ? "noHistory" : "noTurns") : "emptyTurn"];
           } else if (source.kind === "session") {
             files = await tracker.sessionPatches();
-            emptyMessage = unavailableHistory ? "没有可用的历史改动，无法展示完整累计" : "当前会话没有累计改动";
+            emptyMessage = (language) => messages[language][unavailableHistory ? "unavailableTotal" : "emptySession"];
           } else files = await Git.diff(ctx.cwd, source.mode);
-          return { title: scopeTitle(source), files, emptyMessage, notice: source.kind !== "git" && unavailableHistory ? "历史记录不完整" : undefined };
+          return { title: scopeTitle(source), files, emptyMessage, notice: source.kind !== "git" && unavailableHistory ? (language: Language) => messages[language].incompleteHistory : undefined };
         };
         const initial = await loadScope(scope);
         try {
@@ -116,6 +119,7 @@ export default function (pi: ExtensionAPI) {
               done();
             }, {
               view, emptyMessage: initial.emptyMessage, notice: initial.notice,
+              language, onLanguageChange: (next) => { language = next; },
               onViewChange: (next) => { view = next; },
               onScopeChange: (direction) => { void changeScope(direction); },
             });
@@ -123,12 +127,12 @@ export default function (pi: ExtensionAPI) {
               scope = cycleScope(scope, direction, turns, gitAvailable);
               const target = scope;
               const id = ++request;
-              screen.setData(scopeTitle(target), [], { emptyMessage: "正在加载改动…" });
+              screen.setData(scopeTitle(target), [], { emptyMessage: (language) => messages[language].loading });
               try {
                 const data = await loadScope(target);
                 if (!closed && id === request) screen.setData(data.title, data.files, data);
               } catch (error) {
-                if (!closed && id === request) screen.setData(scopeTitle(target), [], { emptyMessage: `加载失败：${error instanceof Error ? error.message : String(error)}` });
+                if (!closed && id === request) screen.setData(scopeTitle(target), [], { emptyMessage: (language) => messages[language].loadFailed(error instanceof Error ? error.message : String(error)) });
               }
             };
             return screen;
@@ -136,10 +140,13 @@ export default function (pi: ExtensionAPI) {
         } finally {
           closed = true;
           request++;
-          if (view && view !== initialView) await saveViewPreference(VIEW_PREFERENCE_PATH, view);
+          await Promise.all([
+            view && view !== initialView ? saveViewPreference(VIEW_PREFERENCE_PATH, view) : undefined,
+            language !== initialLanguage ? saveLanguagePreference(LANGUAGE_PREFERENCE_PATH, language) : undefined,
+          ]);
         }
       } catch (error) {
-        ctx.ui.notify(`pi-diff: ${error instanceof Error ? error.message : String(error)}`, "error");
+        ctx.ui.notify(messages[language].error(error instanceof Error ? error.message : String(error)), "error");
       }
     },
   });

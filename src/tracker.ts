@@ -1,4 +1,4 @@
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -39,7 +39,7 @@ interface RegisteredFile {
  *
  * INVARIANT — single scan: `scanWorkspace(marker)` has one implementation;
  * the turn-start baseline and the bash boundaries only pass different markers
- * (git: HEAD + dirty-file signatures; no-git: mtime + pathname inventory).
+ * (git: HEAD + dirty-file signatures; no-git: file metadata + pathname inventory).
  *
  * Old-side recovery (git): files already dirty at turn start are snapshotted
  * into `turnBaseline` (their turn-start content). Files clean at turn start
@@ -84,9 +84,8 @@ export class Tracker {
    *   changed versus that marker, including paths that became clean. HEAD
    *   changes also include committed paths. Plain porcelain cannot see a
    *   dirty file changing again (" M" stays " M"), hence the content hashes.
-   * - no git: marker is an mtime marker file path; returns files (under cwd,
-   *   excluding IGNORED_DIRS) modified after the marker's mtime or deleted
-   *   since the marker's pathname inventory.
+   * - no git: marker stores file metadata and paths under cwd (excluding
+   *   IGNORED_DIRS); ctime/identity changes detect rewrites that preserve mtime.
    * Returns project-relative posix paths.
    */
   async scanWorkspace(marker: string): Promise<string[]> {
@@ -109,54 +108,54 @@ export class Tracker {
       }
       return [...changed];
     }
-    // No-git backend: walk the tree, compare mtimes against the marker file.
-    let markerMtime: number;
-    let previous: string[];
+    let previous: Map<string, string>;
     try {
-      markerMtime = (await stat(marker)).mtimeMs;
       const value: unknown = JSON.parse(await readFile(marker, "utf8"));
-      if (!Array.isArray(value) || !value.every((file) => typeof file === "string")) return [];
-      previous = value;
+      if (!Array.isArray(value) || !value.every((entry) => Array.isArray(entry) && entry.length === 2 && entry.every((item) => typeof item === "string"))) return [];
+      previous = new Map(value as [string, string][]);
     } catch {
       return [];
     }
-    const current = new Map<string, number>();
+    const current = new Map<string, string>();
     await this.walk(this.cwd, current);
-    const existing = new Set(previous);
-    const changed = [...current].filter(([file, mtime]) => !existing.has(file) || mtime > markerMtime).map(([file]) => file);
-    for (const file of previous) if (!current.has(file)) changed.push(file);
+    const changed = [...current].filter(([file, signature]) => previous.get(file) !== signature).map(([file]) => file);
+    for (const file of previous.keys()) if (!current.has(file)) changed.push(file);
     return changed;
   }
 
-  private async walk(dir: string, out: Map<string, number>): Promise<void> {
+  private async walk(dir: string, out: Map<string, string>): Promise<void> {
     let entries: import("node:fs").Dirent[];
     try {
-      entries = await (await import("node:fs/promises")).readdir(dir, { withFileTypes: true });
+      entries = await readdir(dir, { withFileTypes: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
       throw error;
     }
-    for (const entry of entries) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (!IGNORED_DIRS.has(entry.name)) await this.walk(full, out);
-      } else if (entry.isFile()) {
+    const files = entries.filter((entry) => entry.isFile());
+    for (let offset = 0; offset < files.length; offset += 32) {
+      await Promise.all(files.slice(offset, offset + 32).map(async (entry) => {
+        const full = join(dir, entry.name);
         try {
-          const s = await stat(full);
-          out.set(relative(this.cwd, full).split(sep).join("/"), s.mtimeMs);
+          const s = await stat(full, { bigint: true });
+          out.set(relative(this.cwd, full).split(sep).join("/"), `${s.mtimeNs}:${s.ctimeNs}:${s.size}:${s.dev}:${s.ino}`);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
+      }));
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory() && !IGNORED_DIRS.has(entry.name)) {
+        await this.walk(join(dir, entry.name), out);
       }
     }
   }
 
-  /** Make an mtime marker for the no-git backend of scanWorkspace(). */
+  /** Make a metadata marker for the no-git backend of scanWorkspace(). */
   async makeMarker(): Promise<string> {
-    const files = new Map<string, number>();
+    const files = new Map<string, string>();
     await this.walk(this.cwd, files);
     const file = join(tmpdir(), `pi-diff-marker-${Date.now()}-${randomBytes(4).toString("hex")}`);
-    await writeFile(file, JSON.stringify([...files.keys()]));
+    await writeFile(file, JSON.stringify([...files]));
     return file;
   }
 
@@ -190,14 +189,14 @@ export class Tracker {
           registered = { oldHash: null, baselineUnknown: true, unavailable: true };
         } else if (this.turnBaseline.has(file)) {
           registered = { oldHash: this.turnBaseline.get(file)!, baselineUnknown: false };
-        } else if (this.turnStartHead !== null) {
+        } else {
           // Pin the clean old side so staging or committing mid-turn cannot replace it.
-          const content = await Git.showRevision(this.cwd, this.turnStartHead, this.gitPrefix + file);
+          let content = this.turnStartHead !== null
+            ? await Git.showRevision(this.cwd, this.turnStartHead, this.gitPrefix + file) : null;
+          // Ignored explicit targets are absent from both porcelain and HEAD.
+          if (content === null && opts.fromToolEvent) content = await this.readFileOrNull(file);
           const oldHash = content !== null ? await this.snapshotStore.put(content) : null;
           registered = { oldHash, baselineUnknown: false };
-        } else {
-          // Unborn repository (no commits): everything starts from nothing.
-          registered = { oldHash: null, baselineUnknown: false };
         }
       } else if (opts.fromToolEvent) {
         // No git: only a pre-execution tool event can capture the old side.
@@ -232,7 +231,8 @@ export class Tracker {
    */
   private async gitWorkspaceSignature(): Promise<string> {
     const signature: [string, string, string][] = [];
-    for (const item of await this.workspaceStatus()) {
+    const [head, status] = await Promise.all([Git.headCommit(this.cwd), this.workspaceStatus()]);
+    for (const item of status) {
       let hash = "unreadable";
       try {
         const content = await this.readFileOrNull(item.file);
@@ -240,7 +240,7 @@ export class Tracker {
       } catch { /* Keep the path in the signature even when unreadable. */ }
       signature.push([item.file, item.code, hash]);
     }
-    return JSON.stringify({ head: await Git.headCommit(this.cwd), files: signature });
+    return JSON.stringify({ head, files: signature });
   }
 
   private async workspaceStatus() {
@@ -254,7 +254,7 @@ export class Tracker {
   /**
    * Called from before_agent_start: bump turn counter and take the turn
    * baseline — git: workspace signature + content snapshot of already-dirty
-   * files + pinned HEAD; no-git: an mtime marker file.
+   * files + pinned HEAD; no-git: a metadata marker file.
    */
   async onTurnStart(): Promise<void> {
     this.turnNumber += 1;
@@ -265,9 +265,10 @@ export class Tracker {
     this.turnMarker = null;
 
     if (await this.isGit()) {
-      this.turnStartHead = await Git.headCommit(this.cwd);
+      const [head, status] = await Promise.all([Git.headCommit(this.cwd), this.workspaceStatus()]);
+      this.turnStartHead = head;
       const signature: [string, string, string][] = [];
-      for (const item of await this.workspaceStatus()) {
+      for (const item of status) {
         // Snapshot the turn-start content of dirty files so bash-modified
         // pre-dirty files keep a correct old side. Files already deleted on
         // disk have no turn-start content (a later recreation is "added").

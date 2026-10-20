@@ -92,7 +92,7 @@ export class FileTree {
       const label = `${indent}${marker}${displayText(row.name)}${row.kind === "directory" ? "/" : ""}`;
       const name = selected ? theme.bold(theme.fg("accent", label)) : label;
       const badge = theme.fg(color, status === "added" ? "A" : status === "deleted" ? "D" : status === "modified" ? "M" : " ");
-      const line = fit(prefix + fit(name, width - 4) + " " + badge, width);
+      const line = fit(prefix + badge + " " + name, width);
       return selected ? theme.bg("selectedBg", line) : line;
     });
   }

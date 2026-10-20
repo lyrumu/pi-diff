@@ -14,7 +14,7 @@ import { SnapshotStore } from "../src/snapshot.ts";
 import { Tracker } from "../src/tracker.ts";
 import { Git } from "../src/git.ts";
 import { MAX_PATCH_BYTES, MAX_TOTAL_PATCH_BYTES } from "../src/diff-engine.ts";
-import { loadViewPreference, saveViewPreference } from "../src/preferences.ts";
+import { loadViewPreference, saveViewPreference, loadLanguagePreference, saveLanguagePreference } from "../src/preferences.ts";
 
 const exec = promisify(execFile);
 
@@ -192,6 +192,57 @@ test("parallel file registrations cannot overwrite the first captured baseline",
   });
 });
 
+test("explicit tools capture ignored Git files before execution without changing the index", async () => {
+  await workspace(async (dir, git) => {
+    await writeFile(".gitignore", "ignored*\n");
+    await git("add", ".gitignore");
+    await git("commit", "-qm", "ignore fixture");
+    await writeFile("ignored.txt", "existing\n");
+    const index = await readFile(".git/index");
+    const t = tracker(dir);
+    await edit(t, "ignored.txt", "updated\n");
+    const patch = t.turns()[0]!.patches[0]!;
+    assert.equal(patch.status, "modified");
+    assert.equal(patch.baselineUnknown, undefined);
+    assert.match(patch.patch, /-existing\n\+updated/);
+    await edit(t, "ignored.txt", "updated\n");
+    assert.deepEqual(t.turns()[1]!.patches, [], "failed/no-op tools must not invent an addition");
+    await edit(t, "ignored-new.txt", "created\n");
+    assert.equal(t.turns()[2]!.patches[0]!.status, "added");
+    assert.deepEqual(await readFile(".git/index"), index);
+    assert.deepEqual(await Git.diff(dir, "working"), [], "Git scopes still honor ignore rules");
+  }, true);
+  await workspace(async (dir, git) => {
+    await git("init", "-q", "-b", "main");
+    await writeFile(".gitignore", "ignored.txt\n");
+    await writeFile("ignored.txt", "before first commit\n");
+    const t = tracker(dir);
+    await edit(t, "ignored.txt", "updated\n");
+    assert.equal(t.turns()[0]!.patches[0]!.status, "modified");
+    assert.match(t.turns()[0]!.patches[0]!.patch, /-before first commit\n\+updated/);
+  });
+});
+
+test("no-Git scans detect same-size rewrites and replacements with preserved mtimes", async () => {
+  await workspace(async (dir) => {
+    for (const replace of [false, true]) {
+      await writeFile("x", "before\n");
+      await utimes("x", new Date(0), new Date(0));
+      const t = tracker(dir);
+      await t.onTurnStart();
+      await t.onBashStart("preserve-time");
+      if (replace) await rm("x");
+      await writeFile("x", "after!\n");
+      await utimes("x", new Date(0), new Date(0));
+      await t.onBashEnd("preserve-time");
+      await t.finalizeTurn();
+      assert.deepEqual(t.turns()[0]!.patches.map((p) => p.file), ["x"]);
+      assert.equal(t.turns()[0]!.patches[0]!.baselineUnknown, true);
+      assert.match(t.turns()[0]!.patches[0]!.patch, /\+after!/);
+    }
+  });
+});
+
 test("failed scans release shell, turn and aborted-call temporary markers", async () => {
   await workspace(async (dir) => {
     const t = tracker(dir);
@@ -348,6 +399,31 @@ test("layout preference survives reopen, invalid data defaults safely and failed
     await assert.rejects(saveViewPreference(join(dir, "target-directory"), "split"));
     assert.equal(await readFile(file, "utf8"), previous);
     assert.ok((await readdir(dir)).every((name) => !name.endsWith(".tmp")));
+  });
+});
+
+test("language preference defaults to English and persists atomically without changing layout", async () => {
+  await workspace(async (dir) => {
+    const file = join(dir, "prefs", "language.json");
+    const view = join(dir, "prefs", "view.json");
+    assert.equal(await loadLanguagePreference(file), "en");
+    await saveViewPreference(view, "split");
+    await saveLanguagePreference(file, "zh-CN");
+    assert.equal(await loadLanguagePreference(file), "zh-CN");
+    assert.equal(await loadViewPreference(view), "split");
+    await saveLanguagePreference(file, "en");
+    assert.equal(await loadLanguagePreference(file), "en");
+    for (const invalid of ['{', 'null', '[]', '{}', '"zh-CN"', '{"language":"zh"}', '{"language":123}']) {
+      await writeFile(file, invalid);
+      assert.equal(await loadLanguagePreference(file), "en");
+    }
+    await saveLanguagePreference(file, "zh-CN");
+    const previous = await readFile(file, "utf8");
+    await mkdir(join(dir, "prefs", "target-directory"));
+    await assert.rejects(saveLanguagePreference(join(dir, "prefs", "target-directory"), "en"));
+    assert.equal(await readFile(file, "utf8"), previous);
+    assert.equal(await loadViewPreference(view), "split");
+    assert.ok((await readdir(join(dir, "prefs"))).every((name) => !name.endsWith(".tmp")));
   });
 });
 

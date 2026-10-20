@@ -2,10 +2,9 @@ import { formatPatch, structuredPatch } from "diff";
 
 /**
  * Patch primitives — ported from opencode `packages/core/src/vcs/patch.ts`
- * (MIT, see NOTICE.md). Kept line-for-line where possible; only adjustments
- * are TypeScript-strictness fixes (explicit undefined returns, indexed access
- * guards). The `diff` package provides structuredPatch/formatPatch, exactly as
- * upstream.
+ * (MIT, see NOTICE.md). Kept line-for-line where possible; TypeScript guards
+ * and the hunk-aware countPatch correction are documented in PLAN.md.
+ * The `diff` package provides structuredPatch/formatPatch, exactly as upstream.
  */
 
 // Effectively "full file" context; adapters use it when no context is requested.
@@ -31,9 +30,15 @@ export const deletePatch = (file: string, content: string) =>
 export const countPatch = (patch: string) => {
   let additions = 0;
   let deletions = 0;
+  let remaining = 0;
   for (const line of patch.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) additions++;
-    else if (line.startsWith("-") && !line.startsWith("---")) deletions++;
+    const hunk = line.startsWith("@@ ") ? /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line) : null;
+    if (hunk) remaining = Number(hunk[1] ?? 1) + Number(hunk[2] ?? 1);
+    else if (remaining > 0) {
+      if (line.startsWith("+")) { additions++; remaining--; }
+      else if (line.startsWith("-")) { deletions++; remaining--; }
+      else if (line.startsWith(" ")) remaining -= 2;
+    }
   }
   return { additions, deletions };
 };

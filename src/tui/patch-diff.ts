@@ -1,6 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { FilePatch } from "../diff-engine.ts";
+import { messages, type Language } from "../language.ts";
 import { displayText, fit } from "./text.ts";
 
 export const VIRTUAL_MIN_LINES = 3000;
@@ -51,7 +52,8 @@ export class PatchDiff {
   private readonly unified: Row[] = [];
   private readonly split: Row[] = [];
   private readonly digits: number;
-  private readonly placeholder: string | undefined;
+  private readonly placeholder: "unavailable" | "binary" | "tooLarge" | "deletedUnknown" | "noPatch" | "noTextChanges" | undefined;
+  private language: Language;
   private readonly status: FilePatch["status"];
   private cacheSignature = "";
   private readonly chunks = new Map<number, string[]>();
@@ -59,13 +61,14 @@ export class PatchDiff {
   private totalRows = 0;
   private cacheTheme: Theme | undefined;
 
-  constructor(file: FilePatch) {
+  constructor(file: FilePatch, language: Language = "en") {
+    this.language = language;
     this.status = file.status;
-    this.placeholder = file.unavailable ? "文件内容不可用"
-      : file.binary ? "二进制文件已改变"
-      : file.tooLarge ? "差异超过 10MB 上限"
-      : file.baselineUnknown && file.status === "deleted" ? "文件已删除；修改前内容未知"
-      : !file.patch ? "此文件没有可用的差异内容" : undefined;
+    this.placeholder = file.unavailable ? "unavailable"
+      : file.binary ? "binary"
+      : file.tooLarge ? "tooLarge"
+      : file.baselineUnknown && file.status === "deleted" ? "deletedUnknown"
+      : !file.patch ? "noPatch" : undefined;
     let oldLine = 0;
     let newLine = 0;
     let inHunk = false;
@@ -106,7 +109,11 @@ export class PatchDiff {
       }
       for (let j = 0; j < Math.max(removed.length, added.length); j++) this.split.push({ left: removed[j], right: added[j] });
     }
-    if (!this.placeholder && this.unified.length === 0) this.placeholder = "没有文本变化（空文件或仅元数据变化）";
+    if (!this.placeholder && this.unified.length === 0) this.placeholder = "noTextChanges";
+  }
+
+  setLanguage(language: Language): void {
+    this.language = language;
   }
 
   effectiveView(view: DiffView): DiffView {
@@ -203,7 +210,7 @@ export class PatchDiff {
   }
 
   renderViewport(width: number, height: number, top: number, view: DiffView, theme: Theme): string[] {
-    if (this.placeholder) return [fit(theme.fg("muted", this.placeholder), width), ...Array.from({ length: Math.max(0, height - 1) }, () => fit("", width))].slice(0, height);
+    if (this.placeholder) return [fit(theme.fg("muted", messages[this.language][this.placeholder]), width), ...Array.from({ length: Math.max(0, height - 1) }, () => fit("", width))].slice(0, height);
     view = this.effectiveView(view);
     this.prepare(width, view);
     if (theme !== this.cacheTheme) {

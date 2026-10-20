@@ -12,6 +12,16 @@ import { Git, VCS_DIFF_CONTEXT_LINES } from "../src/git.ts";
 const exec = promisify(execFile);
 const git = async (cwd: string, ...args: string[]) => (await exec("git", args, { cwd, maxBuffer: 32 * 1024 * 1024 })).stdout;
 
+test("patch counts distinguish source prefixes from file headers across hunks and files", () => {
+  const patch = [
+    "diff --git a/x b/x", "--- a/x", "+++ b/x", "@@ -1,2 +1,2 @@",
+    "--- old", "+++ new", " context", "\\ No newline at end of file",
+    "--- a/y", "+++ b/y", "@@ -0,0 +1 @@", "+++ source header", "",
+  ].join("\n");
+  assert.deepEqual(countPatch(patch), { additions: 2, deletions: 1 });
+  assert.deepEqual(countPatch("--- a/x\n+++ b/x\n"), { additions: 0, deletions: 0 });
+});
+
 async function repository(fn: (dir: string) => Promise<void>, commit = true) {
   const dir = await mkdtemp(join(tmpdir(), "pi-diff-git-"));
   try {
