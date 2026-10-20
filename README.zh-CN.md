@@ -6,9 +6,14 @@
 
 ## 功能特性
 
+- **按需查看改动**：查看最近一次任务、整个会话或 Git 改动，同时了解文件数和增删行数。
+- **随时接着看**：已记录的任务改动随会话保存，重载 pi、恢复会话或切换会话分支后仍可查看。
+- **中英双语**：按 `l`／`L` 切换英语与简体中文，记住你的语言选择。
+- **只读审阅**：查看差异不会暂存、提交或回退文件；没有 Git 仓库也能看任务与会话改动。
+
 ### 合并与拆分视图
 
-在同一列中阅读增删内容，或左右对照修改前后的版本。按 `v`／`V` 或点击顶部按钮切换，布局偏好会保存。长行自动换行，保留源行号，拆分视图两侧保持对齐，增删配色跟随 pi 主题。新增／删除文件固定使用合并视图；窗口较窄时也会自动使用合并视图。
+在同一列中阅读改动，或左右对照修改前后的内容。按 `v`／`V` 或点击顶部按钮切换。长行自动换行，配色跟随 pi 主题；新增／删除文件和较窄的窗口使用合并视图。
 
 <table>
   <tr>
@@ -16,31 +21,42 @@
     <th align="center">拆分视图</th>
   </tr>
   <tr>
-    <td align="center"><a href="docs/images/unified-view.png"><img src="docs/images/unified-view-preview.png" width="360" alt="合并视图：左侧改动文件树，顶部总增删行数，右侧高亮显示新增和删除内容"></a></td>
-    <td align="center"><a href="docs/images/split-view.png"><img src="docs/images/split-view-preview.png" width="360" alt="拆分视图：左右对照修改前后的内容，自动换行并保持两侧对齐"></a></td>
+    <td align="center"><a href="https://github.com/lyrumu/pi-diff/blob/main/docs/images/diff-unified.png"><img src="https://raw.githubusercontent.com/lyrumu/pi-diff/main/docs/images/diff-unified.png" width="360" alt="合并视图：改动文件树与高亮显示的增删内容"></a></td>
+    <td align="center"><a href="https://github.com/lyrumu/pi-diff/blob/main/docs/images/diff-split.png"><img src="https://raw.githubusercontent.com/lyrumu/pi-diff/main/docs/images/diff-split.png" width="360" alt="拆分视图：左右对照修改前后的内容"></a></td>
   </tr>
 </table>
 
-点击预览图可查看完整尺寸截图。
+点击图片可查看完整尺寸截图。
 
-### 参照 opencode
+### 文件树与可拖动分隔线
 
-参照 [opencode](https://github.com/anomalyco/opencode) 的 diff 查看体验与核心行为，将终端差异审阅带到 pi，通过 `/diff` 直接查看项目改动。
+<table>
+  <tr>
+    <td valign="top"><a href="https://github.com/lyrumu/pi-diff/blob/main/docs/images/file-tree-resize.png"><img src="https://raw.githubusercontent.com/lyrumu/pi-diff/main/docs/images/file-tree-resize.png" width="220" alt="文件树、A/M/D 状态标记与高亮的可拖动分隔线"></a></td>
+    <td valign="top">
+      <p>通过可折叠目录快速找到改动文件。<code>A</code>、<code>M</code>、<code>D</code> 分别表示新增、修改和删除。</p>
+      <p>左右拖动分隔线，为文件树或差异内容腾出空间，双击恢复默认宽度。拖到最左边缘可收起文件树，按 <code>[</code> 或点击 <code>[展开文件树]</code> 即可恢复。</p>
+    </td>
+  </tr>
+</table>
 
-### 在 pi 中完成改动审阅
+### 灵感来自 opencode
 
-- **五种查看范围**：最近一轮、会话累计、未暂存、未提交和分支全部改动，按 `Tab`／`Shift+Tab` 循环切换。
-- **改动规模一眼可见**：顶部显示当前范围的文件数与总增删行数，选中文件也有独立的增删统计。
-- **快速定位改动文件**：可折叠文件树、醒目的选中高亮，以及 `A`／`M`／`D` 状态标记；支持键盘导航、鼠标点击与滚轮浏览。
-- **重新打开也能继续查看**：已记录的每轮差异随会话保存，重载 pi、恢复会话或切换会话分支后仍可查看。
-- **只读审阅**：查看差异不会暂存、提交或回退文件；无 Git 仓库也能查看最近一轮和会话累计改动。
+参照 [opencode](https://github.com/anomalyco/opencode) 的终端差异审阅体验，通过 `/diff` 在 pi 中直接查看改动。
 
 ## 安装
 
-需要 pi **1.2.0**（已验证版本）、Node.js ≥ 22.19.0、npm 和系统 Git。
+项目开发环境：pi **1.2.0 及以上**、Node.js ≥ 22.19.0、npm 和系统 Git。
 
 ```bash
 # 安装扩展
+pi install npm:@lyrumu/pi-diff
+```
+
+也可以从 GitHub 安装：
+
+```bash
+# 从 GitHub 安装
 pi install git:github.com/lyrumu/pi-diff
 ```
 
@@ -50,47 +66,55 @@ pi install git:github.com/lyrumu/pi-diff
 
 ```bash
 # 更新扩展
-pi update git:github.com/lyrumu/pi-diff
+pi update npm:@lyrumu/pi-diff
 
 # 卸载扩展
-pi remove git:github.com/lyrumu/pi-diff
+pi remove npm:@lyrumu/pi-diff
 ```
+
+若从 GitHub 安装，更新和卸载时均将来源替换为 `git:github.com/lyrumu/pi-diff`。
 
 ## 使用
 
-在项目目录启动 pi，完成一次修改后输入 `/diff`。默认显示 **Last turn**。
+在项目目录启动 pi，输入 `/diff`。Git 仓库默认显示 **Unstaged（未暂存）**，其他项目默认显示 **Last turn（最近一轮）**。按 `[` 进入文件树，用 `j`／`k` 选文件，再按 `]` 阅读和滚动差异。界面首次使用英语，按 `l`／`L` 可切换为简体中文。
 
 按 `Tab`／`Shift+Tab` 向后／向前循环：
 
-| 范围 | 含义 |
+| 范围（英文／中文） | 含义 |
 |---|---|
-| Last turn | 最近一轮任务的改动；该轮没有改动时显示为空 |
-| Session total | 当前会话分支中已记录的累计改动 |
-| Unstaged | 暂存区 → 当前文件，即未暂存的改动 |
-| Uncommitted | HEAD → 当前文件，包含已暂存和未暂存的改动 |
-| All branch changes | 与默认基准分支共同祖先相比的全部改动，含已提交及未提交部分 |
+| Last turn／最近一轮 | 最近一次任务的改动 |
+| Session total／会话累计 | 当前会话分支中已记录的累计改动 |
+| Unstaged／未暂存 | 尚未暂存的改动 |
+| Uncommitted／未提交 | 已暂存和未暂存的改动 |
+| All branch changes／分支全部改动 | 相对基准分支的全部改动，包含已提交和未提交部分 |
 
-Git 范围也包含未跟踪文件；无 Git 仓库时只显示前两项。插件仅查询 Git，不执行暂存、提交或回退。
+Git 范围也包含未跟踪文件；没有 Git 仓库时只显示前两项。
+
+### 快捷键与鼠标
+
+<a href="https://github.com/lyrumu/pi-diff/blob/main/docs/images/keyboard-shortcuts.zh-CN.png"><img src="https://raw.githubusercontent.com/lyrumu/pi-diff/main/docs/images/keyboard-shortcuts.zh-CN.png" width="100%" alt="中文快捷键栏：l/L 切换语言，方括号切换焦点，Tab/Shift+Tab 切换范围，v/V 切换视图，方向键或滚轮及 j/k 滚动，Esc/q 关闭"></a>
+
+底部快捷键提示随焦点变化：文件树聚焦时，`j`／`k` 选择文件；内容区聚焦时，`j`／`k` 滚动内容。
 
 | 操作 | 按键／鼠标 |
 |---|---|
 | 选择文件、折叠目录 | 鼠标点击；文件树中用 `↑↓`，`Enter`／空格展开或折叠目录 |
-| 上一个／下一个文件 | `p`／`n` |
-| 操作文件树／差异内容 | `h`／`l`；鼠标操作自动选择区域 |
-| 滚动内容 | 滚轮、`↑↓`、`PageUp`／`PageDown`；内容区用 `Home`／`End` 到首尾 |
+| 下一个／上一个文件 | 文件树聚焦时按 `j`／`k` |
+| 操作文件树／差异内容 | `[`／`]`，或点击对应区域 |
+| 调整／收起文件树 | 拖动分隔线；拖到最左边缘收起，双击恢复默认宽度 |
+| 展开已收起的文件树 | `[` 或点击顶部 `[展开文件树]` |
+| 滚动内容 | 滚轮、`↑↓`、`j`／`k`、`PageUp`／`PageDown`；`Home`／`End` 到首尾 |
 | 切换合并／拆分视图 | `v`／`V`，或点击顶部“切换视图” |
+| 切换英语／简体中文 | `l`／`L` |
 | 退出 | `Esc`／`q` |
 
-文件树中的 `M` 表示修改、`A` 表示新增、`D` 表示删除。新增／删除文件固定为合并视图，不能切换；右侧不足 100 列时也使用合并视图。窗口较窄时用 `h`／`l` 在文件树和内容页之间切换。
-
-长行自动换行，源行号只显示一次，续行标记为 `↳`；拆分两侧保持对齐。增删行带主题红绿背景，布局偏好会保存。
+窗口较窄时，用 `[`／`]` 在文件树和内容页之间切换。
 
 ## 数据与限制
 
-- 仅记录扩展启用后的改动，范围限于项目目录内；不会补回旧会话中缺失的历史。
-- 每轮差异随 pi 会话保存，重载、恢复会话或切换会话分支后仍可查看。内容缓存和布局偏好位于 `~/.pi/agent/data/pi-diff/`。
-- 无 Git 时，shell 改动可能无法取得修改前内容，会显示 `baseline unknown`；累计缓存缺失时会提示累计不完整。
-- 二进制文件和超过 10 MB 限制的差异仅显示提示；极窄窗口可能裁切内容。
+- 任务和会话历史仅包含扩展启用后记录的项目目录内改动；Git 范围可以查看已有改动。
+- 没有 Git 时，shell 改动可能提示“修改前内容未知”；无法完整恢复会话累计时，界面会明确提示。
+- 二进制文件和超过 10 MB 的差异仅显示提示，不展示内容。
 
 ## 许可
 
